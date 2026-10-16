@@ -1,0 +1,50 @@
+PART A
+
+## **Implementation Task**
+Your script should:
+1. Load a DICOM file or DICOM series.
+2. Extract the relevant spatial metadata:
+    - `ImageOrientationPatient`
+    - `ImagePositionPatient`
+    - `PixelSpacing`
+    - `SliceThickness` or slice spacing derived from slice positions
+    - Slice order information
+3. Compute the voxel-to-patient transformation matrix.
+4. Identify the anatomical orientation of the volume axes.
+5. Compute the transformation matrix required to express the volume in RPI convention.
+6. Output the final transformation matrix and clearly state the transformation direction.
+
+---
+
+## **Required Deliverables**
+
+### **1) Runnable DICOM Orientation Script**
+
+Your repository should include a Python script or notebook that performs the DICOM orientation analysis and RPI conversion.
+
+The script should be runnable with clear instructions, for example:
+
+```
+python dicom_to_rpi.py --input path/to/dicom/folder
+```
+
+---
+
+### **2) Transformation Outputs**
+Your run should produce:
+
+- Original DICOM orientation metadata
+- Voxel-to-patient transformation matrix
+- Detected anatomical orientation of the volume axes
+- Transformation matrix required to express the volume in RPI convention
+- Final transformation matrix
+- Clear statement of transformation direction
+
+---
+
+### **3) Documentation**
+Include a short explanation of:
+- How the DICOM spatial metadata is used
+- How the voxel-to-patient matrix is computed
+- How RPI conversion is handled
+- Any assumptions or limitations
