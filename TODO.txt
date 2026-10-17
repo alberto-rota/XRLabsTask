@@ -34,11 +34,11 @@ python dicom_to_rpi.py --input path/to/dicom/folder
 Your run should produce:
 
 - Original DICOM orientation metadata OK
-- Voxel-to-patient transformation matrix 
-- Detected anatomical orientation of the volume axes
-- Transformation matrix required to express the volume in RPI convention
-- Final transformation matrix
-- Clear statement of transformation direction
+- Voxel-to-patient transformation matrix OK
+- Detected anatomical orientation of the volume axes OK
+- Transformation matrix required to express the volume in RPI convention OK
+- Final transformation matrix OK
+- Clear statement of transformation direction OK
 
 ---
 
