@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt # Plotting
 import os # File system
 from rich import print # Logging (I like coloered output)
 
+import argparse
 # Input data as provided
 DATA_DIR = "data/Aneurysm_MRI"
 # Retrieving all filenames
