@@ -54,34 +54,39 @@ print(f"\nVolume shape (voxels): {vol3d.shape}")
 
 ### TRANSFORM: Volume-to-Patient --------------------------------------------------
 
-# Initializing volume 2 patient matrix as identity
-vol2pat = np.eye(4)
-# First col: moving down a row (row index) follows Y_dir (IOP[3:6]) * row spacing
-vol2pat[:3,0] = Y_dir * pixel_spacing_Y
-# Second col: moving along a row (column index) follows X_dir (IOP[0:3]) * column spacing
-vol2pat[:3,1] = X_dir * pixel_spacing_X
+# Initializing the voxel2patient matrix as identity
+vox2pat = np.eye(4)
+# First col: moving down a row (row index) follows Y_dir in 'pixel_spacing_Y' steps
+vox2pat[:3,0] = Y_dir * pixel_spacing_Y
+# Second col: moving along a row (column index) follows X_dir in 'pixel_spacing_X' steps
+vox2pat[:3,1] = X_dir * pixel_spacing_X
 
 # Third colums, slice spacings: computed from slice positions
 imagepos_firstslice = np.array(slices[0].ImagePositionPatient, float)
 imagepos_lastslice = np.array(slices[-1].ImagePositionPatient, float)
-vol2pat[:3,2] = (imagepos_lastslice - imagepos_firstslice) / (len(slices) - 1)
+vox2pat[:3,2] = (imagepos_lastslice - imagepos_firstslice) / (len(slices) - 1)
 
 # Fourth column transformss origin to imageposition for first slice
-vol2pat[:3,3] = imagepos_firstslice
+vox2pat[:3,3] = imagepos_firstslice
 print("Volume-to-Patient transform matrix:")
-print(vol2pat)
+print(vox2pat)
 
 # Sanity check: voxel (0,0,k) must land on each slice ImagePositionPatient
-print("Volume-to-Patient transform check: ", "[green]PASS[/green]" if all(np.allclose(vol2pat @ [0, 0, k, 1], [*np.array(slices[k].ImagePositionPatient, float), 1]) for k in (0, 1, len(slices) - 1)) else "[red]FAIL[/red]")
+print("Volume-to-Patient transform check: ", "[green]PASS[/green]" if all(np.allclose(vox2pat @ [0, 0, k, 1], [*np.array(slices[k].ImagePositionPatient, float), 1]) for k in (0, 1, len(slices) - 1)) else "[red]FAIL[/red]")
+
+# CONVERTING-TO-RPI ---------------------------------------------------------------
 
 # Identifying anatomical orientation
-anatomical_orientation_vol2pat = anatomical_orientation(vol2pat)
+anatomical_orientation_vox2pat = anatomical_orientation(vox2pat)
 
-print(f"\nAnatomical orientation Identified: [blue]{anatomical_orientation_vol2pat}[/blue] ")
+print(f"\nAnatomical orientation Identified: [blue]{anatomical_orientation_vox2pat}[/blue] ")
 if anatomical_orientation != "RPI":
-    vol2pat_rpi = vol2pat @ find_transform_to_rpi(vol2pat) 
+    vox2pat_rpi = vox2pat @ find_transform_to_rpi(vox2pat) 
+else:
+    vox2pat_rpi = vox2pat 
+    print("No transformation required, already in RPI convention")
 print(f"Volume-to-RPI transform matrix:")
-print(vol2pat_rpi)
-anatomical_orientation_new = anatomical_orientation(vol2pat_rpi)
+print(vox2pat_rpi)
+anatomical_orientation_new = anatomical_orientation(vox2pat_rpi)
 print(f"\nAnatomical orientation Identified: [blue]{anatomical_orientation_new}[/blue] --> [green]PASS[/green]" if anatomical_orientation_new == "RPI" else "[red]FAIL[/red]")
 
