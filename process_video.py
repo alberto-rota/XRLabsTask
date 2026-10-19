@@ -15,6 +15,7 @@ import rerun as rr
 import json
 import argparse
 import numpy as np
+import os
 import cv2 # OpenCV for loading avi video data
 from rich import print
 from rich.progress import Progress
@@ -24,6 +25,10 @@ args.add_argument("--video", type=str, default="data/surgical_navigation_task.av
 args.add_argument("--stride", type=int, default=1, help="log every N-th frame to rerun, defaults to 1")
 args.add_argument("--max_frames", type=int, default=None, help="stop after N frames, defaults to the whole video")
 args.add_argument("--match_res_downsample", type=float, default=0.5, help="downsample the resolution for the stereo matching, defaults to 0.5 (8x faster than fullres)")
+args.add_argument("--depth_range_mm", type=tuple, default=(500, 1000), help="depth range in mm, defaults to 500-1000mm")
+args.add_argument("--save_frames", action="store_true", help="save the frames to the disk, defaults to False")
+args.add_argument("--save_depthmaps", action="store_true", help="save the depth maps to the disk, defaults to False")
+args.add_argument("--out_dir", type=str, default="out/", help="path outpiut directory, defaults to out/")
 args = args.parse_args()
 
 ### LOADING THE VIDEO DATA AND CAMERA PARAMETERS ------------------------------------------------
@@ -70,7 +75,7 @@ REAL_IMAGE_SIZE = (cam["calibration_resolution"]["width"], cam["calibration_reso
 RECT_SIZE = (int(REAL_IMAGE_SIZE[0] * args.match_res_downsample), int(REAL_IMAGE_SIZE[1] * args.match_res_downsample))
 if args.match_res_downsample != 1:
     print(f"Running matching at {args.match_res_downsample} resolution. Expect {int(1/args.match_res_downsample**3)}x speedup")
-    
+
 # Finding the stereo rectification transforms
 R1, R2, P1, P2, Q, roi1, roi2 = cv2.stereoRectify(
     K1, d1, K2, d2, (frame_width, frame_height), R, T, alpha=0, newImageSize=RECT_SIZE
@@ -203,11 +208,30 @@ with Progress() as progress:
             rr.log("/rect/right/image", rr.Image(right_rect, color_model="BGR"))
             rr.log("/depth/cam/depth", rr.DepthImage(depth, colormap="turbo"))
  
+            # Moving progress bar forward
             progress.update(task, completed=frameidx + 1)
+
+            # Saving frames and depthmaps to npy files if requested
+            if args.save_frames:
+                os.makedirs(os.path.join(args.out_dir, "frames"), exist_ok=True)
+                np.save(os.path.join(args.out_dir, "frames", f"frame_{frameidx:06d}.npy"), frame)
+            if args.save_depthmaps:
+                os.makedirs(os.path.join(args.out_dir, "depthmaps"), exist_ok=True)
+                np.save(os.path.join(args.out_dir, "depthmaps", f"depth_{frameidx:06d}.npy"), depth)
 
         frameidx += 1
         # In case we wanna process only a certain number of frames
         if args.max_frames is not None and frameidx >= args.max_frames:
             break
 
+# Checking filesaves
+num_frames_saved = len(os.listdir(os.path.join(args.out_dir, "frames"))) if args.save_frames else 0
+num_depthmaps_saved = len(os.listdir(os.path.join(args.out_dir, "depthmaps"))) if args.save_depthmaps else 0
+
+if args.save_frames:
+    frame_save_ok = num_frames_saved == total_frames
+    print(f"Saved {'[green]' if frame_save_ok else '[red]'} {num_frames_saved}/{total_frames} [/] frames to {os.path.join(args.out_dir, 'frames')}")
+if args.save_depthmaps:
+    depthmap_save_ok = num_depthmaps_saved == total_frames
+    print(f"Saved {'[green]' if depthmap_save_ok else '[red]'} {num_depthmaps_saved}/{total_frames} [/] depth maps to {os.path.join(args.out_dir, 'depthmaps')}")
 cap.release()
