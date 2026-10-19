@@ -48,3 +48,73 @@ Include a short explanation of:
 - How the voxel-to-patient matrix is computed
 - How RPI conversion is handled
 - Any assumptions or limitations
+
+
+
+PART B 
+
+# **PART B: Registration of the Transformed 3D Model to Stereo Video and AR Projection**
+
+## **Goal**
+
+Using the transformed volume from Part A, first segment the skin/external patient surface and generate a 3D surface mesh. External software may be used for this step if the workflow is documented.
+
+Then, implement a Python pipeline that registers the transformed pre-operative 3D model to the intraoperative stereo annotated landmarks for validation and projects the registered model into the image feed.
+
+This task represents the next step of the navigation pipeline: connecting the transformed pre-operative anatomical model to the live microscope/exoscope view.
+
+---
+
+## **Inputs**
+
+The candidate will be provided with:
+
+- A video stream of left and right camera (surgical_navigation_task.avi)
+- Stereo camera calibration parameters
+- A DICOM file (Aneurysm MRI-20260520T145226Z-3-001)
+
+---
+
+## **Outputs**
+
+Return visual and quantitative outputs showing:
+
+1. Detected features and stereo matches
+2. Triangulated 3D landmarks
+3. Corresponding landmarks on the transformed 3D model
+4. Estimated registration matrix
+5. Registration or reprojection error
+6. Projected overlay on the left and/or right video frame
+7. A short discussion of assumptions, limitations, and failure cases
+
+---
+
+## **Implementation Task**
+
+Your pipeline should:
+
+1. Load synchronized left and right video streams.
+2. Load the transformed volume, mesh, or landmarks produced from Part A.
+3. Detect anatomical, geometric, synthetic, or manually initialized features in the left and right images (the candidate is free to choose the features).
+4. Match corresponding features between the stereo views.
+5. Detect, define, or manually annotate corresponding landmarks on the transformed 3D model.
+6. Estimate the registration transformation between the transformed 3D model coordinate system and the stereo camera coordinate system.
+7. Project the registered 3D model and/or specific selected anatomical structures into the left and right image feed.
+8. Output visualizations and quantitative error metrics.
+
+---
+
+## **Implementation Requirements**
+
+The implementation should include:
+
+- Camera intrinsic matrices
+- Stereo extrinsic transformation
+- Feature detection and matching
+- Stereo triangulation
+- 3D-to-3D registration
+- Homogeneous transformations
+- 3D-to-2D projection
+- Overlay visualization
+
+Manually selected landmarks are acceptable if fully automatic anatomical feature detection is not feasible. The candidate should clearly explain how/why the method could be extended to real anatomical features in a surgical setting.

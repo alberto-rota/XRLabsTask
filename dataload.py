@@ -1,19 +1,30 @@
-# (c) Alberto for XRLabs - Interview task
+### Alberto / XRLabs Interview task
+# ------------------------------------------------------------------------------
+"""
+    'dataload.py' loads the DICOM volume data and the associated metadata then computes the necessary transforms
+    to convert the volume to the RPI convention.
+    
+    'python dataload.py --help' to see the args overrides
+
+    > Needs the raw DICOM data
+    > Provides outputs to 'skin_segment.py'
+"""
 
 import pydicom # Handling dicom
 import numpy as np # Tensors
-import matplotlib.pyplot as plt # Plotting
 import os # File system
 from rich import print # Logging (I like coloered output in the terminal)
 from rich.progress import track # Progress bar
 import argparse # CLI
 
+import json
 from helpers import anatomical_orientation, find_transform_to_rpi
 
 args = argparse.ArgumentParser()
 args.add_argument("--data_dir", type=str, default="data/Aneurysm_MRI", help="path to dicom data dir, defaults to data/Aneurysm_MRI")
+args.add_argument("--out_dir", type=str, default="out/", help="path outpiut directory, defaults to out/")
 args = args.parse_args()
-DATA_DIR = args.data_dir # For this task its the only arg
+DATA_DIR = args.data_dir 
 
 print()
 ### DATALOADING --------------------------------------------------
@@ -80,6 +91,7 @@ print("Volume-to-Patient transform check: ", "[green]PASS[/green]" if all(np.all
 anatomical_orientation_vox2pat = anatomical_orientation(vox2pat)
 
 print(f"\nAnatomical orientation Identified: [blue]{anatomical_orientation_vox2pat}[/blue] ")
+# If not in RPI convention, converting to RPI
 if anatomical_orientation != "RPI":
     vox2pat_rpi = vox2pat @ find_transform_to_rpi(vox2pat) 
 else:
@@ -87,6 +99,18 @@ else:
     print("No transformation required, already in RPI convention")
 print(f"Volume-to-RPI transform matrix:")
 print(vox2pat_rpi)
+# Verifying that the final transform is in RPI convention
 anatomical_orientation_new = anatomical_orientation(vox2pat_rpi)
 print(f"\nAnatomical orientation Identified: [blue]{anatomical_orientation_new}[/blue] --> [green]PASS[/green]" if anatomical_orientation_new == "RPI" else "[red]FAIL[/red]")
 
+# Saving transformations to json
+with open(os.path.join(args.out_dir, "transforms.json"), "w") as f:
+    json.dump(
+        {
+            "vox2pat": vox2pat.tolist(),
+            "vox2pat_rpi": vox2pat_rpi.tolist(),
+        }, f, indent=4
+    )
+print("> Transformations saved to transforms.json")
+np.save(os.path.join(args.out_dir, "volume.npy"), vol3d)
+print("> Volume saved to volume.npy")
