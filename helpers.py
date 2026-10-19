@@ -6,6 +6,7 @@
 
 import numpy as np
 import cv2
+import open3d as o3d # Open3D for mesh operations and registrations
 
 def anatomical_orientation(vox2pat: np.ndarray) -> str:
     # Positive-Negative axis have this labels, will be appended to the string based on the axis dirs found
@@ -35,74 +36,16 @@ def find_transform_to_rpi(vox2pat: np.ndarray) -> np.ndarray:
     pri_to_rpi = np.linalg.inv(pri_rf) @ rpi_rf
     return pri_to_rpi
 
-def compute_depth(left_rect, right_rect, sgbm, fb, depth_scale=1):
-    # FB = -P2[0, 3]
-    # Expected disparity at half resolution: ~185-205 px (depth ~520-580 mm). The search range [96, 288)
-    # covers depths from ~370 mm to ~1100 mm.
-    MIN_DISP, NUM_DISP = 96, 192
-    """Depth map (mm) aligned to the half-resolution rectified left image, 0 where invalid."""
-    gray = [
-        cv2.cvtColor(cv2.resize(img, None, fx=depth_scale, fy=depth_scale, interpolation=cv2.INTER_AREA), cv2.COLOR_BGR2GRAY)
-        for img in (left_rect, right_rect)
-    ]
-    # SGBM cannot match the first MIN_DISP+NUM_DISP columns. Left-padding both images shrinks that blind zone
-    # to the region the right camera truly does not see.
-    pad = MIN_DISP + NUM_DISP
-    gray = [cv2.copyMakeBorder(g, 0, 0, pad, 0, cv2.BORDER_CONSTANT, value=0) for g in gray]
-    disp = sgbm.compute(*gray).astype(np.float32)[:, pad:] / 16.0  # SGBM returns fixed-point disparity (x16)
-    valid = disp > MIN_DISP
-    depth = np.zeros_like(disp)
-    depth[valid] = fb / (disp[valid] / depth_scale)  # disparity back to full rectified resolution
-    return depth
-
-def create_sgbm():
-    """SGBM matcher with the parameters compute_depth assumes (disparity search [96, 288) at half resolution)."""
-    MIN_DISP, NUM_DISP, BLOCK = 96, 192, 5
-    return cv2.StereoSGBM_create(
-        minDisparity=MIN_DISP,
-        numDisparities=NUM_DISP,  # must be divisible by 16
-        blockSize=BLOCK,  # must be odd
-        P1=24 * BLOCK**2,  # smoothness penalties, strong because the phantom surface is smooth
-        P2=96 * BLOCK**2,
-        disp12MaxDiff=1,  # left-right consistency check
-        uniquenessRatio=10,
-        speckleWindowSize=100,
-        speckleRange=2,
-        mode=cv2.STEREO_SGBM_MODE_SGBM_3WAY,
+def compute_normals(mesh: o3d.geometry.TriangleMesh, ds: float = 3.0) -> o3d.geometry.TriangleMesh:
+    mesh.estimate_normals(
+        o3d.geometry.KDTreeSearchParamHybrid(radius=3* ds, max_nn=30)
     )
+    return mesh
 
-def setup_stereo(cam: dict, depth_scale: float = 0.5) -> dict:
-    """Rescaled intrinsics, rectification maps and depth-camera intrinsics for the SBS stereo video."""
-    layout = cam["sbs_video_layout"]
-    eye_width = layout["left_x_range"][1] - layout["left_x_range"][0]
-    eye_size = (eye_width, layout["frame_height"])
-    rect_size = (cam["calibration_resolution"]["width"], cam["calibration_resolution"]["height"])
-    sx = eye_width / rect_size[0]
-
-    def rescaled_K(K):
-        K = np.array(K, dtype=float)
-        K[0, 0] *= sx
-        K[0, 2] = sx * (K[0, 2] + 0.5) - 0.5
-        return K
-
-    K1, d1 = rescaled_K(cam["left"]["K"]), np.array(cam["left"]["dist_opencv"])
-    K2, d2 = rescaled_K(cam["right"]["K"]), np.array(cam["right"]["dist_opencv"])
-    R, _ = cv2.Rodrigues(np.array(cam["stereo"]["rotation_vector"]))
-    T = np.array(cam["stereo"]["translation_mm"]).reshape(3, 1)
-
-    R1, R2, P1, P2, Q, _, _ = cv2.stereoRectify(K1, d1, K2, d2, eye_size, R, T, alpha=0, newImageSize=rect_size)
-    # Intrinsics of the half-resolution rectified left camera, the one the depth maps are aligned to
-    K_depth = P1[:3, :3].copy()
-    K_depth[:2] *= depth_scale
-    K_depth[:2, 2] += 0.5 * (depth_scale - 1)
-    return {
-        "left_x": slice(*layout["left_x_range"]),
-        "right_x": slice(*layout["right_x_range"]),
-        "maps_left": cv2.initUndistortRectifyMap(K1, d1, R1, P1, rect_size, cv2.CV_32FC1),
-        "maps_right": cv2.initUndistortRectifyMap(K2, d2, R2, P2, rect_size, cv2.CV_32FC1),
-        "P1": P1,
-        "P2": P2,
-        "fb": -P2[0, 3],
-        "K_depth": K_depth,
-        "depth_res": (int(rect_size[0] * depth_scale), int(rect_size[1] * depth_scale)),
-    }
+def compute_fpfh_features(cloud: o3d.geometry.PointCloud, ds: float = 3.0) -> o3d.pipelines.registration.Feature:
+    """FPFH descriptors (local 3D shape signatures), one per point of an already downsampled cloud.
+    The cloud MUST carry oriented normals: 
+    """
+    return o3d.pipelines.registration.compute_fpfh_feature(
+        cloud, o3d.geometry.KDTreeSearchParamHybrid(radius=6 * ds, max_nn=100)
+    )
