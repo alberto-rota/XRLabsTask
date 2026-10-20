@@ -1,14 +1,13 @@
 ### Alberto / XRLabs Interview task
 # ------------------------------------------------------------------------------
 """
-    'process_video.py' processes the stereo video, rectifies the framepairs, computes the stereo matches, finds the disparity 
-    map and ultimately the depth map in real world coordinates. 
-    
-    'python process_video.py --help' to see the args overrides
+'process_video.py' processes the stereo video, rectifies the framepairs, computes the stereo matches, finds the disparity
+map and ultimately the depth map in real world coordinates.
 
-    > Needs the outputs of 'dataload.py' and 'skin_segment.py'
-    > Provides outputs to ''
+'python process_video.py --help' to see the args overrides
 
+> Needs the outputs of 'dataload.py' and 'skin_segment.py'
+> Provides outputs to ''
 """
 
 import rerun as rr
@@ -16,15 +15,21 @@ import json
 import argparse
 import numpy as np
 import os
-import cv2 # OpenCV for loading avi video data
+import cv2  # OpenCV for loading avi video data
 from rich import print
 from rich.progress import Progress
 import open3d as o3d
-from helpers import compute_fpfh_features
+from helpers import compute_fpfh_features, render_overlay, fitness_gate, find_rigid
+
 print()
 
 args = argparse.ArgumentParser()
-args.add_argument("--video", type=str, default="data/surgical_navigation_task.avi", help="path to SBS stereo video")
+args.add_argument(
+    "--video",
+    type=str,
+    default="data/surgical_navigation_task.avi",
+    help="path to SBS stereo video",
+)
 args.add_argument(
     "--mesh",
     type=str,
@@ -34,21 +39,51 @@ args.add_argument(
 args.add_argument(
     "--mri_cloud_size",
     type=int,
-    default=150_000,
+    default=100_000,
     help="size of the MRI cloud, defaults to 150_000",
 )
-args.add_argument("--stride", type=int, default=1, help="log every N-th frame to rerun, defaults to 1")
-args.add_argument("--max_frames", type=int, default=None, help="stop after N frames, defaults to the whole video")
-args.add_argument("--match_res_downsample", type=float, default=0.5, help="downsample the resolution for the stereo matching, defaults to 0.5 (8x faster than fullres)")
-args.add_argument("--depth_range_mm", type=tuple, default=(500, 1000), help="depth range in mm, defaults to 500-1000mm")
-args.add_argument("--save_frames", action="store_true", help="save the frames to the disk, defaults to False")
-args.add_argument("--save_depthmaps", action="store_true", help="save the depth maps to the disk, defaults to False")
-args.add_argument("--out_dir", type=str, default="out/", help="path outpiut directory, defaults to out/")
+args.add_argument(
+    "--stride", type=int, default=1, help="log every N-th frame to rerun, defaults to 1"
+)
+args.add_argument(
+    "--max_frames",
+    type=int,
+    default=None,
+    help="stop after N frames, defaults to the whole video",
+)
+args.add_argument(
+    "--match_res_downsample",
+    type=float,
+    default=0.5,
+    help="downsample the resolution for the stereo matching, defaults to 0.5 (8x faster than fullres)",
+)
+args.add_argument(
+    "--depth_range_mm",
+    type=tuple,
+    default=(500, 1000),
+    help="depth range in mm, defaults to 500-1000mm",
+)
+args.add_argument(
+    "--save_frames",
+    action="store_true",
+    help="save the frames to the disk, defaults to False",
+)
+args.add_argument(
+    "--save_depthmaps",
+    action="store_true",
+    help="save the depth maps to the disk, defaults to False",
+)
+args.add_argument(
+    "--out_dir",
+    type=str,
+    default="out/",
+    help="path outpiut directory, defaults to out/",
+)
 
 args = args.parse_args()
 
 ### LOADING THE VIDEO DATA AND CAMERA PARAMETERS ------------------------------------------------
-# Initializing the video reader and the camera parameters.  
+# Initializing the video reader and the camera parameters.
 cap = cv2.VideoCapture(args.video)
 flag, frame = cap.read()
 if not flag:
@@ -57,27 +92,29 @@ else:
     print(f"Video file opened: {args.video}")
 # Image frame dimensions
 frame_height, frame_width = frame.shape[:2]
-frame_width = 954 # IMPORTANT: Overridden with the real width value as specified in the notes
+frame_width = (
+    954  # IMPORTANT: Overridden with the real width value as specified in the notes
+)
 
 # Loading the camera parameters as provided
 cam = json.load(open("data/camera_params.json"))
 
 ### ADJUSTING THE CAMERA INTRINSICS ------------------------------------------------
-# Because the calibration images width was different to the vido frame wisth, the camera x-axis changes by a 
+# Because the calibration images width was different to the vido frame wisth, the camera x-axis changes by a
 # scaling factor (954/1920) and the principal point x-coordinate changes by a factor (652.2570/1920).
-X_RESCALE_FACTOR = 954/1920
+X_RESCALE_FACTOR = 954 / 1920
 
 K1, d1 = np.array(cam["left"]["K"]), np.array(cam["left"]["dist_opencv"])
-K1[0,0] *= X_RESCALE_FACTOR
-K1[0,2] = X_RESCALE_FACTOR * (K1[0,2] + 0.5) - 0.5 
+K1[0, 0] *= X_RESCALE_FACTOR
+K1[0, 2] = X_RESCALE_FACTOR * (K1[0, 2] + 0.5) - 0.5
 
 K2, d2 = np.array(cam["right"]["K"]), np.array(cam["right"]["dist_opencv"])
-K2[0,0] *= X_RESCALE_FACTOR
-K2[0,2] = X_RESCALE_FACTOR * (K2[0,2] + 0.5) - 0.5 
+K2[0, 0] *= X_RESCALE_FACTOR
+K2[0, 2] = X_RESCALE_FACTOR * (K2[0, 2] + 0.5) - 0.5
 
 # Extrinsics
 R, _ = cv2.Rodrigues(np.array(cam["stereo"]["rotation_vector"]))
-T = np.array(cam["stereo"]["translation_mm"]).reshape(3, 1) 
+T = np.array(cam["stereo"]["translation_mm"]).reshape(3, 1)
 
 # Parameters to separate left and right eye images from the video stream
 LEFT_X_END = slice(*cam["sbs_video_layout"]["left_x_range"])
@@ -107,21 +144,23 @@ print(
     f"{len(mri_points)} vertices & {len(mri_normals)} normals: {'[green]PASSED[/]' if len(mri_points) == len(mri_normals) else '[red]FAIL[/]'}"
 )
 
-# Computing the static FPFH features from the MRI head mesh
-# Same voxel size as the video frames, so descriptors are comparable. Averaged normals keep their (outward) sign
-mri_pcloud = mri_pcloud.voxel_down_sample(3)
-mri_pcloud.normalize_normals()
-mri_fpfh = compute_fpfh_features(mri_pcloud)
-print(f"Computed FPFH features from the MRI head mesh, with shape {mri_fpfh.data.shape}")
 
 ### STEREO RECTIFICATION MAPS ------------------------------------------------------------
 # The video resolution is different than the calibration resolution (also, visually, the imagees are very squished horizontally).
 # OpenCV stereorectify allows to specify the output resolution, we bribg it back to the calibration resolution
 
-REAL_IMAGE_SIZE = (cam["calibration_resolution"]["width"], cam["calibration_resolution"]["height"])
-RECT_SIZE = (int(REAL_IMAGE_SIZE[0] * args.match_res_downsample), int(REAL_IMAGE_SIZE[1] * args.match_res_downsample))
+REAL_IMAGE_SIZE = (
+    cam["calibration_resolution"]["width"],
+    cam["calibration_resolution"]["height"],
+)
+RECT_SIZE = (
+    int(REAL_IMAGE_SIZE[0] * args.match_res_downsample),
+    int(REAL_IMAGE_SIZE[1] * args.match_res_downsample),
+)
 if args.match_res_downsample != 1:
-    print(f"Running matching at {args.match_res_downsample} resolution. Expect {int(1/args.match_res_downsample**3)}x speedup")
+    print(
+        f"Running matching at {args.match_res_downsample} resolution. Expect {int(1 / args.match_res_downsample**3)}x speedup"
+    )
 
 # Finding the stereo rectification transforms
 R1, R2, P1, P2, Q, roi1, roi2 = cv2.stereoRectify(
@@ -129,7 +168,7 @@ R1, R2, P1, P2, Q, roi1, roi2 = cv2.stereoRectify(
 )
 
 # Depth = fB/disp --> fB we get from the rectified stereo output
-FB = -P2[0,3]
+FB = -P2[0, 3]
 # Depth lives in the rectified left camera --> P1
 K_depth = P1[:3, :3]
 
@@ -139,28 +178,35 @@ map1_r, map2_r = cv2.initUndistortRectifyMap(K2, d2, R2, P2, RECT_SIZE, cv2.CV_3
 
 v_grid, u_grid = np.mgrid[0 : RECT_SIZE[1], 0 : RECT_SIZE[0]]
 
-# At this point we only initialize the teansforms and the lookup tables. 
+# At this point we only initialize the teansforms and the lookup tables.
 # They are applied to every frame in the loop below.
-# We do the same for the stereo matcher 
+# We do the same for the stereo matcher
 
 ### STEREO MATCHING---------------------------------------------------------------
 # Instantiating the stereo matcher and its parameters.
-DEPTH_RANGE_mm = (500, 1000) # ASSUMPTION: Depth range from 20 to 27cm (by visual inspection)
-MIN_DISPARITY = int(FB / DEPTH_RANGE_mm[1]) # Min disparity is the disparity for the maximum depth
-NUM_DISPARITIES = int(FB / DEPTH_RANGE_mm[0] - MIN_DISPARITY) # Num disparities is the disparity range
-BLOCK_SIZE = 7 # Very smooth surface --> strong smoothness penalties
-SGBM_P1 = 24 * BLOCK_SIZE**2 # As suggested in the OpenCV documentation
-SGBM_P2 = 96 * BLOCK_SIZE**2 # As suggested in the OpenCV documentation
+DEPTH_RANGE_mm = (
+    500,
+    1000,
+)  # ASSUMPTION: Depth range from 20 to 27cm (by visual inspection)
+MIN_DISPARITY = int(
+    FB / DEPTH_RANGE_mm[1]
+)  # Min disparity is the disparity for the maximum depth
+NUM_DISPARITIES = int(
+    FB / DEPTH_RANGE_mm[0] - MIN_DISPARITY
+)  # Num disparities is the disparity range
+BLOCK_SIZE = 7  # Very smooth surface --> strong smoothness penalties
+SGBM_P1 = 24 * BLOCK_SIZE**2  # As suggested in the OpenCV documentation
+SGBM_P2 = 96 * BLOCK_SIZE**2  # As suggested in the OpenCV documentation
 
 sgbm = cv2.StereoSGBM_create(
     minDisparity=MIN_DISPARITY,
-    numDisparities=NUM_DISPARITIES, 
+    numDisparities=NUM_DISPARITIES,
     blockSize=BLOCK_SIZE,
     P1=SGBM_P1,
     P2=SGBM_P2,
-    disp12MaxDiff=1,  # left-right consistency check
-    speckleRange=2, # Speckle filtering
-    mode=cv2.STEREO_SGBM_MODE_SGBM_3WAY, # 3-way matching to reduce noise
+    disp12MaxDiff=2,  # left-right consistency check
+    speckleRange=3,  # Speckle filtering
+    mode=cv2.STEREO_SGBM_MODE_SGBM_3WAY,  # 3-way matching to reduce noise
 )
 print("Running stereo matcher with parameters:")
 print(f"  MIN_DISPARITY: {MIN_DISPARITY}")
@@ -174,36 +220,117 @@ print(f"  P2: {SGBM_P2}")
 # static elements like the guides for the stereo matching.
 rr.init("Stereo Rectification and Depth Map", spawn=True)
 rr.send_blueprint(
-    rr.blueprint.Vertical(
-        # >> Uncomment if you want to visualize the raw images
-        # rr.blueprint.Horizontal(
-        #     rr.blueprint.Spatial2DView(origin="/raw/left", name="Left (raw)"),
-        #     rr.blueprint.Spatial2DView(origin="/raw/right", name="Right (raw)"),
-        # ),
-        rr.blueprint.Horizontal(
-            rr.blueprint.Spatial2DView(origin="/rect/left", name="Left (rectified)"),
-            rr.blueprint.Spatial2DView(origin="/rect/right", name="Right (rectified)"),
+    rr.blueprint.Horizontal(
+        rr.blueprint.Vertical(
+            # rr.blueprint.Horizontal(
+            #     rr.blueprint.Spatial2DView(origin="/rect/left", name="Left (rectified)"),
+            #     rr.blueprint.Spatial2DView(origin="/rect/right", name="Right (rectified)"),
+            # ),
+            rr.blueprint.Horizontal(
+                rr.blueprint.Spatial2DView(
+                    origin="/overlay/left", name="Left (overlay)"
+                ),
+                # rr.blueprint.Spatial2DView(origin="/overlay/right", name="Right (overlay)"),
+            ),
+            rr.blueprint.TimeSeriesView(origin="/plots", name="Plots"),
+            # row_shares=[0.25,0.25,0.5]
         ),
-        rr.blueprint.Horizontal(
-            rr.blueprint.Spatial2DView(origin="/depth/cam", name="Depth (mm, rectified left)"),
-            rr.blueprint.Spatial3DView(origin="/depth", name="Depth point cloud"),
+        rr.blueprint.Vertical(
+            rr.blueprint.Spatial3DView(
+                origin="/mri",
+                name="Depth point cloud",
+            ),
+            # rr.blueprint.Spatial3DView(origin="/depth", name="Depth point cloud",),
         ),
     )
 )
-# Drawing horizontal lines at 60px intervals in the rectified images to visually check stereo rectification
-rows = np.arange(0, RECT_SIZE[1], 60)
-for view, width in (("/rect/left", RECT_SIZE[0]), ("/rect/right", RECT_SIZE[0])):
-    guides = rr.LineStrips2D([[[0, y], [width, y]] for y in rows], colors=[0, 255, 0], radii=0.5)
-    rr.log(f"{view}/guides", guides, static=True)
-    
+# # Drawing horizontal lines at 60px intervals in the rectified images to visually check stereo rectification
+# rows = np.arange(0, RECT_SIZE[1], 60)
+# for view, width in (("/rect/left", RECT_SIZE[0]), ("/rect/right", RECT_SIZE[0])):
+#     guides = rr.LineStrips2D([[[0, y], [width, y]] for y in rows], colors=[0, 255, 0], radii=0.5)
+#     rr.log(f"{view}/guides", guides, static=True)
+rr.log("/mri", rr.ViewCoordinates.LFD, static=True)
+
 # Drawing the camera frustum. The depth map lives in the rectified left camera, so its intrinsics are P1 (not K1).
 # The OpenCV convention (x right, y down, z forward) is rerun's default Pinhole convention (RDF).
-rr.log("/depth/cam", rr.Pinhole(
-    image_from_camera=P1[:3, :3],
-    resolution=RECT_SIZE,
-    camera_xyz=rr.ViewCoordinates.RDF,
-    image_plane_distance=DEPTH_RANGE_mm[0]/2, # /2 is just for the sake of the visualization
-), static=True)
+rr.log("/depth", rr.ViewCoordinates.RIGHT_HAND_Y_DOWN, static=True)
+rr.log(
+    "/depth/cam",
+    rr.Pinhole(
+        image_from_camera=P1[:3, :3],
+        resolution=RECT_SIZE,
+        image_plane_distance=DEPTH_RANGE_mm[0]
+        / 4,  # /4 is just for the sake of the visualization
+    ),
+    static=True,
+)
+
+# Drawing the MRI outer surface mesh. Rerun only shades meshes that come with normals (otherwise flat, no edges)
+mesh_verts = np.asarray(mesh.vertices)
+mesh_vertex_normals = np.asarray(mesh.vertex_normals)
+# Same outward check as for the sampled cloud: inward normals would light the head from the inside
+if (
+    np.mean(
+        np.sum((mesh_verts - mesh_verts.mean(axis=0)) * mesh_vertex_normals, axis=1)
+    )
+    < 0
+):
+    mesh_vertex_normals = -mesh_vertex_normals
+rr.log(
+    "/mri/surface",
+    rr.Mesh3D(
+        vertex_positions=mesh_verts,
+        triangle_indices=mesh_npz["faces"],
+        vertex_normals=mesh_vertex_normals,
+        albedo_factor=[224, 172, 140, 255],  # skin tone
+    ),
+    static=True,
+)
+
+# Preparing the scene to render the overlay of the MRI mesh that will be composed onto the video frame
+overlay_scene = o3d.t.geometry.RaycastingScene()
+overlay_scene.add_triangles(o3d.t.geometry.TriangleMesh.from_legacy(mesh))
+
+# REGISTRATION ----------------------------------------------------------------------
+# Tracking strategy: every frame runs ICP starting from the previous pose (fast, precise, but local).
+# The global FPFH+RANSAC registration (slow, robust, coarse) only runs when tracking is lost, followed by ICP.
+# Every result (tracked or global) must pass a quality gate, otherwise the last good pose is kept.
+FRAME_VOXEL_DOWNSAMPLE = 5  # Tracking (ICP) resolution
+GLOBAL_VOXEL_DOWNSAMPLE = (
+    3  # Global (FPFH) resolution: finer = more distinctive features, it runs rarely
+)
+FOREGROUND_DEPTH_BAND_mm = 100  # Background removal: keep depths within this band from the nearest surface (the phantom)
+MAX_FRAME_TRANSLATION_mm = (
+    20  # Tracking lost if the pose jumps more than this between two consecutive frames
+)
+MAX_FRAME_ROTATION_deg = 10
+# Robust kernel: points without an MRI counterpart (instruments, leftover background) stop pulling the fit
+
+
+def prepare_frame_cloud(points, voxel):
+    """Video cloud at the given resolution, with normals oriented towards the camera"""
+    cloud = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points))
+    # Downsample before outlier removal: kNN on ~40k points instead of ~400k (~5x faster)
+    cloud = cloud.voxel_down_sample(voxel)
+    cloud, _ = cloud.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+    cloud.estimate_normals(
+        o3d.geometry.KDTreeSearchParamHybrid(radius=3 * voxel, max_nn=30)
+    )
+    # Cloud is in camera coordinates, so the camera sits at the origin
+    cloud.orient_normals_towards_camera_location(np.zeros(3))
+    return cloud
+
+
+# Same voxel size on both sides, so the descriptors are comparable
+mri_track_cloud = mri_pcloud.voxel_down_sample(FRAME_VOXEL_DOWNSAMPLE)
+mri_track_cloud.normalize_normals()
+mri_global_cloud = mri_pcloud.voxel_down_sample(GLOBAL_VOXEL_DOWNSAMPLE)
+mri_global_cloud.normalize_normals()
+
+mri_global_fpfh = compute_fpfh_features(mri_global_cloud, GLOBAL_VOXEL_DOWNSAMPLE)
+print(
+    f"Computed FPFH features from the MRI head mesh, with shape {mri_global_fpfh.data.shape}"
+)
 
 # MAIN LOOP -------------------------------------------------------------------------
 
@@ -213,6 +340,8 @@ total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 if args.max_frames is not None:
     total_frames = min(total_frames, args.max_frames)
 frameidx = 0
+# Tracking state: last pose that passed the quality gate
+T_refined = None
 
 # Progress bar in the terminal to show how far along we are in the video processing
 with Progress() as progress:
@@ -224,32 +353,55 @@ with Progress() as progress:
         ret, frame = cap.read()
         if not ret:
             break
+        if frameidx < 200:
+            frameidx += 1
+            continue
 
-        if frameidx % args.stride == 0: # In case we wanna process only every N-th frame
+        if (
+            frameidx % args.stride == 0
+        ):  # In case we wanna process only every N-th frame
             # Extracting left and right frames and rectifying
             left, right = frame[:, LEFT_X_END], frame[:, RIGHT_X_START]
             left_rect = cv2.remap(left, map1_l, map2_l, cv2.INTER_LINEAR)
             right_rect = cv2.remap(right, map1_r, map2_r, cv2.INTER_LINEAR)
-            
+
             # SGBM needs grayscale images. Converting
             gray = [
-                cv2.cvtColor(cv2.resize(img, None, fx=1, fy=1, interpolation=cv2.INTER_AREA), cv2.COLOR_BGR2GRAY)
+                cv2.cvtColor(
+                    cv2.resize(img, None, fx=1, fy=1, interpolation=cv2.INTER_AREA),
+                    cv2.COLOR_BGR2GRAY,
+                )
                 for img in (left_rect, right_rect)
             ]
             # SGBM cannot match the first MIN_DISP+NUM_DISP columns. Padding
             pad = MIN_DISPARITY + NUM_DISPARITIES
-            gray = [cv2.copyMakeBorder(g, 0, 0, pad, 0, cv2.BORDER_CONSTANT, value=0) for g in gray]
+            gray = [
+                cv2.copyMakeBorder(g, 0, 0, pad, 0, cv2.BORDER_CONSTANT, value=0)
+                for g in gray
+            ]
 
             # Finding the disparity matches (SGBM call)
-            disp = sgbm.compute(*gray).astype(np.float32)[:, pad:] / 16.0 # SGBM returns fixed-point disparity x16
+            disp = (
+                sgbm.compute(*gray).astype(np.float32)[:, pad:] / 16.0
+            )  # SGBM returns fixed-point disparity x16
 
             # Filtering: Some columns are ouyt of the right image width
             cols = np.arange(disp.shape[1], dtype=np.float32)[None, :]
-            valid = (disp > MIN_DISPARITY) & (cols - disp >= 0)  # match must fall inside the real right image
+            valid = (disp > MIN_DISPARITY) & (
+                cols - disp >= 0
+            )  # match must fall inside the real right image
 
             # Disparity to depth
             depth = np.zeros_like(disp)
-            depth[valid] = FB / disp[valid]  
+            depth[valid] = FB / disp[valid]
+
+            # Background removal: the phantom is the nearest surface, the table behind it is farther and noisier
+            if valid.any():
+                nearest_depth = np.percentile(
+                    depth[valid], 2
+                )  # Robust to a few too-near outliers
+                valid &= depth < nearest_depth + FOREGROUND_DEPTH_BAND_mm
+                depth[~valid] = 0
 
             # Depth to cloud
             points = np.stack(
@@ -260,77 +412,156 @@ with Progress() as progress:
                 ],
                 axis=1,
             )
-            cloud_fromvideo = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points))
-            FRAME_VOXEL_DOWNSAMPLE = 3
-            # Downsample before outlier removal: kNN on ~40k points instead of ~400k (~5x faster)
-            cloud_fromvideo = cloud_fromvideo.voxel_down_sample(FRAME_VOXEL_DOWNSAMPLE)
-            cloud_fromvideo, _ = cloud_fromvideo.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
-            cloud_fromvideo.estimate_normals(
-                o3d.geometry.KDTreeSearchParamHybrid(radius=3 * FRAME_VOXEL_DOWNSAMPLE, max_nn=30)
-            )
-            # Cloud is in camera coordinates, so the camera sits at the origin
-            cloud_fromvideo.orient_normals_towards_camera_location(np.zeros(3))
+            cloud_fromvideo = prepare_frame_cloud(points, FRAME_VOXEL_DOWNSAMPLE)
 
-            frame_fpfh = compute_fpfh_features(cloud_fromvideo)
-            ransac = (
-                o3d.pipelines.registration.registration_ransac_based_on_feature_matching(
-                    cloud_fromvideo,
-                    mri_pcloud,
-                    frame_fpfh,
-                    mri_fpfh,
-                    True,
-                    1.5 * FRAME_VOXEL_DOWNSAMPLE,
-                    o3d.pipelines.registration.TransformationEstimationPointToPoint(False),
-                    3,
-                    [
+            # Tracking: ICP from the previous pose, accepted only if the fit is good and the pose doesn't jump
+            tracked = False
+            if T_refined is not None:
+                result = find_rigid(cloud_fromvideo, mri_global_cloud, T_refined)
+
+                D = np.linalg.inv(T_refined) @ result.transformation
+                angle = np.degrees(
+                    np.arccos(np.clip((np.trace(D[:3, :3]) - 1) / 2, -1, 1))
+                )
+                jump_mm, jump_deg = np.linalg.norm(D[:3, 3]), angle
+
+                tracked = (
+                    fitness_gate(result)
+                    and jump_mm < MAX_FRAME_TRANSLATION_mm
+                    and jump_deg < MAX_FRAME_ROTATION_deg
+                )
+
+            # Tracking lost (or first frame): global FPFH+RANSAC registration, then ICP for precision
+            registered = tracked
+            if not tracked:
+                cloud = prepare_frame_cloud(points, GLOBAL_VOXEL_DOWNSAMPLE)
+                frame_fpfh = compute_fpfh_features(cloud, GLOBAL_VOXEL_DOWNSAMPLE)
+                ransac = o3d.pipelines.registration.registration_ransac_based_on_feature_matching(
+                    source=cloud,
+                    target=mri_global_cloud,
+                    source_feature=frame_fpfh,
+                    target_feature=mri_global_fpfh,
+                    mutual_filter=True,
+                    max_correspondence_distance=1 * GLOBAL_VOXEL_DOWNSAMPLE,
+                    estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPoint(
+                        False
+                    ),
+                    ransac_n=3,
+                    checkers=[
                         o3d.pipelines.registration.CorrespondenceCheckerBasedOnEdgeLength(
                             0.9
                         ),
                         o3d.pipelines.registration.CorrespondenceCheckerBasedOnDistance(
-                            1.5 * FRAME_VOXEL_DOWNSAMPLE
+                            1 * GLOBAL_VOXEL_DOWNSAMPLE
                         ),
                     ],
-                    o3d.pipelines.registration.RANSACConvergenceCriteria(400_000, 0.999),
+                    criteria=o3d.pipelines.registration.RANSACConvergenceCriteria(
+                        400_000, 0.999
+                    ),
                 )
-            )
-            T_ransac = ransac.transformation
+                result_ransac = ransac.transformation
 
-            
-            print(len(np.asarray(ransac.correspondence_set)),"/",len(frame_fpfh.data.T))
+                result = find_rigid(cloud_fromvideo, mri_track_cloud, result_ransac)
+                registered = fitness_gate(result)
+            # Only a pose that passed the quality gate is kept. Otherwise we hold the last good one and retry next frame
+            if registered:
+                T_refined = result.transformation
+
+            # The transform we found transforms the depthmap from the camera RF to the MRI RF.
+            # The overlay transformation will need to bring the MRI to the camera RF, so we invert the transfor
+            if T_refined is not None:
+                T_mri2camera = np.linalg.inv(T_refined)
+                # Red outline: this frame failed registration and shows the last good pose
+                overlay = render_overlay(
+                    img=left_rect,
+                    K_depth=K_depth,
+                    T_mri2camera=T_mri2camera,
+                    overlay_scene=overlay_scene,
+                    rect_size=RECT_SIZE,
+                    color=(140, 172, 224),
+                    alpha=0.5,
+                    outline_color=None if registered else (0, 0, 255),
+                )
+                rr.log("/overlay/left", rr.Image(overlay, color_model="BGR"))
+
+            # Logging
             rr.set_time("frame", sequence=frameidx)
-            # >> Uncomment if you want to visualize the raw images
-            # rr.log("/raw/left/image", rr.Image(left, color_model="BGR"))
-            # rr.log("/raw/right/image", rr.Image(right, color_model="BGR"))
-            rr.log("/rect/left/image", rr.Image(left_rect, color_model="BGR"))
-            rr.log("/rect/right/image", rr.Image(right_rect, color_model="BGR"))
-            rr.log("/depth/cam/depth", rr.DepthImage(depth, colormap="turbo"))
- 
+            rr.log("/plots/fitness", rr.Scalars(result.fitness))
+            rr.log("/plots/inlier_rmse", rr.Scalars(result.inlier_rmse))
+            rr.log("/plots/global_reinit", rr.Scalars(float(not tracked)))
+            rr.log("/plots/registered", rr.Scalars(float(registered)))
+
+            if T_refined is not None:
+                rr.log(
+                    "/mri/depth_registered",
+                    rr.Transform3D(
+                        translation=T_refined[:3, 3], mat3x3=T_refined[:3, :3]
+                    ),
+                )
+            rr.log(
+                "/mri/depth_registered/camera",
+                rr.Pinhole(
+                    image_from_camera=K_depth,
+                    resolution=RECT_SIZE,
+                    image_plane_distance=DEPTH_RANGE_mm[0] / 4,
+                ),
+            )
+            rr.log(
+                "/mri/depth_registered/camera/image",
+                rr.DepthImage(depth, colormap="turbo"),
+            )
+
+            # rr.log("/rect/left/image", rr.Image(left_rect, color_model="BGR"))
+            # rr.log("/rect/right/image", rr.Image(right_rect, color_model="BGR"))
+            # rr.log("/depth/cam/depth", rr.DepthImage(depth, colormap="turbo"))
+
             # Moving progress bar forward
             progress.update(task, completed=frameidx + 1)
 
-            # Saving frames and depthmaps to npy files if requested 
+            # Saving frames and depthmaps to npy files if requested
             if args.save_frames:
                 os.makedirs(os.path.join(args.out_dir, "left"), exist_ok=True)
-                np.save(os.path.join(args.out_dir, "left", f"left_{frameidx:04d}.npy"), left_rect)
+                np.save(
+                    os.path.join(args.out_dir, "left", f"left_{frameidx:04d}.npy"),
+                    left_rect,
+                )
                 os.makedirs(os.path.join(args.out_dir, "right"), exist_ok=True)
-                np.save(os.path.join(args.out_dir, "right", f"right_{frameidx:04d}.npy"), right_rect)
+                np.save(
+                    os.path.join(args.out_dir, "right", f"right_{frameidx:04d}.npy"),
+                    right_rect,
+                )
             if args.save_depthmaps:
                 os.makedirs(os.path.join(args.out_dir, "depthmaps"), exist_ok=True)
-                np.save(os.path.join(args.out_dir, "depthmaps", f"depth_{frameidx:04d}.npy"), depth)
+                np.save(
+                    os.path.join(
+                        args.out_dir, "depthmaps", f"depth_{frameidx:04d}.npy"
+                    ),
+                    depth,
+                )
 
-        frameidx += 1
+            frameidx += 1
         # In case we wanna process only a certain number of frames
         if args.max_frames is not None and frameidx >= args.max_frames:
             break
 
 # Checking filesaves
-num_frames_saved = len(os.listdir(os.path.join(args.out_dir, "frames"))) if args.save_frames else 0
-num_depthmaps_saved = len(os.listdir(os.path.join(args.out_dir, "depthmaps"))) if args.save_depthmaps else 0
+num_frames_saved = (
+    len(os.listdir(os.path.join(args.out_dir, "frames"))) if args.save_frames else 0
+)
+num_depthmaps_saved = (
+    len(os.listdir(os.path.join(args.out_dir, "depthmaps")))
+    if args.save_depthmaps
+    else 0
+)
 
 if args.save_frames:
     frame_save_ok = num_frames_saved == total_frames
-    print(f"Saved {'[green]' if frame_save_ok else '[red]'} {num_frames_saved}/{total_frames} [/] frames to {os.path.join(args.out_dir, 'frames')}")
+    print(
+        f"Saved {'[green]' if frame_save_ok else '[red]'} {num_frames_saved}/{total_frames} [/] frames to {os.path.join(args.out_dir, 'frames')}"
+    )
 if args.save_depthmaps:
     depthmap_save_ok = num_depthmaps_saved == total_frames
-    print(f"Saved {'[green]' if depthmap_save_ok else '[red]'} {num_depthmaps_saved}/{total_frames} [/] depth maps to {os.path.join(args.out_dir, 'depthmaps')}")
+    print(
+        f"Saved {'[green]' if depthmap_save_ok else '[red]'} {num_depthmaps_saved}/{total_frames} [/] depth maps to {os.path.join(args.out_dir, 'depthmaps')}"
+    )
 cap.release()
