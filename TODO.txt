@@ -1,7 +1,90 @@
-PART A
+---
+
+- **Confidentiality Notice (Summary)**
+    
+    This test task and all associated materials are confidential and proprietary to XRlabs.
+    
+    By accessing or engaging with this task, you agree to:
+    
+    - Use the materials **solely** for the purpose of completing this assessment
+    - **Not share, publish, or disclose** any part of the task or materials to any third party
+    - **Not reuse or repurpose** the content for research, publication, or other projects
+    - Delete all materials after completing the task or upon request
+    
+    Engagement with this task constitutes acceptance of these confidentiality obligations.
+    
+    A full confidentiality and non-disclosure statement is provided separately for reference:
+    
+    **Confidentiality & Non-Disclosure Notice**
+    
+
+---
+
+### **Overview**
+
+We are developing a microscope/exoscope-guided augmented reality navigation system for microsurgery. The system projects pre-operative 3D anatomical information, such as CT/MRI segmentations or anatomical meshes, into the live surgical image feed. This is a high-precision surgical navigation problem involving medical-image coordinate systems, stereo vision, 3D registration, and real-time AR projection.
+
+---
+
+## **Your Role Would Involve**
+
+- Working with pre-operative medical imaging data such as DICOM, CT/MRI volumes, segmentations, and anatomical meshes
+- Managing surgical navigation coordinate systems and anatomical reference conventions
+- Implementing camera projection, stereo reconstruction, and 3D-to-2D overlay pipelines
+- Registering pre-operative 3D anatomy to intraoperative microscope/exoscope video
+- Building robust, reproducible tools for navigation geometry, validation, and visualization
+
+You will be expected to think at a navigation-system level, not only implement isolated algorithms.
+
+---
+
+## **This Test Is Designed to Evaluate Whether You Can**
+
+- Correctly manage medical-image coordinate systems and transformation matrices
+- Understand DICOM orientation metadata and anatomical reference conventions
+- Implement a reproducible 3D-to-2D surgical AR projection pipeline
+- Register stereo-video observations to a transformed 3D anatomical model
+- Demonstrate practical engineering judgment around assumptions, errors, and failure cases
+
+This is *not* a speed test. It is a demonstration of clarity of thought, technical depth, and engineering judgment.
+
+---
+
+# **PART A: DICOM Orientation and RPI Reference-System Conversion**
+
+## **Objective**
+
+Implement a Python script that reads a DICOM volume and computes the coordinate transformation required to express the image in the **RPI anatomical reference system**.
+
+The goal of this task is to evaluate whether you understand how medical-image coordinate systems are encoded in DICOM and how incorrect orientation handling can affect surgical navigation and AR projection.
+
+---
+
+## **What You Will Build**
+
+A small Python tool that demonstrates:
+
+1. Loading of a DICOM file or DICOM series
+2. Extraction of relevant DICOM spatial metadata
+3. Computation of the voxel-to-patient transformation matrix
+4. Identification of the anatomical orientation of the volume axes
+5. Computation of the transformation matrix required to express the volume in RPI convention
+6. Clear output of the final transformation matrix and transformation direction
+
+---
+
+## **Constraints / Assumptions**
+
+- The code should be runnable, documented, and reproducible.
+- You should clearly state any assumptions regarding slice ordering, voxel spacing, units, and missing or inconsistent DICOM metadata.
+- The output of this task will be used as the coordinate-system basis for Part B.
+
+---
 
 ## **Implementation Task**
+
 Your script should:
+
 1. Load a DICOM file or DICOM series.
 2. Extract the relevant spatial metadata:
     - `ImageOrientationPatient`
@@ -31,27 +114,28 @@ python dicom_to_rpi.py --input path/to/dicom/folder
 ---
 
 ### **2) Transformation Outputs**
+
 Your run should produce:
 
-- Original DICOM orientation metadata OK
-- Voxel-to-patient transformation matrix OK
-- Detected anatomical orientation of the volume axes OK
-- Transformation matrix required to express the volume in RPI convention OK
-- Final transformation matrix OK
-- Clear statement of transformation direction OK
+- Original DICOM orientation metadata
+- Voxel-to-patient transformation matrix
+- Detected anatomical orientation of the volume axes
+- Transformation matrix required to express the volume in RPI convention
+- Final transformation matrix
+- Clear statement of transformation direction
 
 ---
 
 ### **3) Documentation**
+
 Include a short explanation of:
+
 - How the DICOM spatial metadata is used
 - How the voxel-to-patient matrix is computed
 - How RPI conversion is handled
 - Any assumptions or limitations
 
-
-
-PART B 
+---
 
 # **PART B: Registration of the Transformed 3D Model to Stereo Video and AR Projection**
 
@@ -118,3 +202,82 @@ The implementation should include:
 - Overlay visualization
 
 Manually selected landmarks are acceptable if fully automatic anatomical feature detection is not feasible. The candidate should clearly explain how/why the method could be extended to real anatomical features in a surgical setting.
+
+---
+
+# **SUBMISSION**
+
+Please submit a single Git repository containing:
+
+### **Code**
+
+- Python code or notebooks for Part A and Part B
+- Any scripts required to reproduce the results
+- Clear separation between:
+    - DICOM orientation logic
+    - Mesh/volume handling
+    - stereo video processing
+    - registration logic
+    - projection and visualization logic
+
+### **Docs**
+
+- `README.md` with:
+    - how to run Part A
+    - how to run Part B
+    - required dependencies
+    - expected outputs
+- Short design write-up, for example `docs/design.md`, covering:
+    - coordinate systems
+    - transformation directions
+    - data flow
+    - key assumptions
+    - known limitations
+    - what you would improve for a production surgical-navigation system
+- A short detailed report describing the used approach and pipeline
+
+### **Outputs**
+
+- Example transformation matrices from Part A
+- Example output images or plots from Part B
+- Projected overlay image or video frame
+- Registration or reprojection error metrics
+
+---
+
+# **EVALUATION CRITERIA**
+
+## **Engineering Quality**
+
+- Clean structure, naming, and separation of concerns
+- Runnable and reproducible code
+- Clear documentation
+- Useful visualization of outputs
+
+## **Coordinate-System Understanding**
+
+- Correct use of DICOM spatial metadata
+- Correct transformation-chain reasoning
+- Proper handling of anatomical reference systems
+- Awareness of transformation direction, units, and axis conventions
+
+## **Surgical Navigation Geometry**
+
+- Correct camera projection mathematics
+- Correct use of stereo intrinsics and extrinsics
+- Correct triangulation and 3D-to-3D registration logic
+- Sensible handling of registration and reprojection error
+
+## **Robustness Thinking**
+
+- Clear discussion of assumptions and limitations
+- Awareness of calibration, registration, and feature-detection errors
+- Ability to reason about failure cases
+- Awareness that AR overlays in surgery must fail safely
+
+## **Practical Implementation**
+
+- Code is readable and testable
+- Outputs are easy to inspect
+- Pipeline is understandable from the README
+- Manually initialized data is used appropriately when real anatomical feature detection is not feasible

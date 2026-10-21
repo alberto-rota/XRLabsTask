@@ -21,10 +21,12 @@ from rerun.blueprint import EyeControls3D
 from skimage.measure import marching_cubes  # Pretty standard algo for voxel-to-mesh
 from scipy.ndimage import (
     binary_closing,
+    binary_fill_holes,
+    label,
     gaussian_filter,
 )  # Binary ops needed for mesh refinement
 
-import json
+import json5 as json 
 from helpers import anatomical_orientation, find_transform_to_rpi
 
 args = argparse.ArgumentParser()
@@ -135,18 +137,30 @@ vol3d_rpi = vol3d.copy().transpose(1, 0, 2)
 
 # Generate initial binary mask by segmentation
 mri_intensity_threshold = args.body_volume_threshold
+# Rough binary segmentation based on what is tissue and what is backgroundf
 vol_binary = np.array(vol3d_rpi > mri_intensity_threshold)
+# Labelling the binary mask 
+vol_labels = label(vol_binary)[0]
+counts = np.bincount(vol_labels.ravel())
+counts[0] = 0 # Background is not a body part
+
+# 3D binary operations to refine the mask: 1. binary closing to fill holes, 2. binary fill holes to fill small gaps
+vol_binary = binary_fill_holes(binary_closing(vol_labels == counts.argmax(), iterations=2))
+# Gaussian filter otherwise the mesh has strong staircase artifacts
 vol_filtered = gaussian_filter(vol3d_rpi.astype(np.float32), sigma=0.5)
+# Creating a field based on the binary mask and the filtered volume
 field = np.where(
     vol_binary,
     np.maximum(vol_filtered, mri_intensity_threshold + 1),
     np.minimum(vol_filtered, mri_intensity_threshold - 1),
 )
+# Apply marching cubes
 verts, faces, normals, _ = marching_cubes(field, level=mri_intensity_threshold)
 print(f"\nExtracted external skin surface mesh with {len(verts)} vertices and {len(faces)} triangles")
 print(f"Opening Rerun viewer with 3D visualizations")
-rr.init("MRI Preprocessing", spawn=True)
 
+### 3D VISUALIZATION ON RERUN -----------------------------------------------------------------
+rr.init("MRI Preprocessing", spawn=True)
 rr.send_blueprint(
     rr.blueprint.Horizontal(
         rr.blueprint.Spatial3DView(
@@ -158,8 +172,7 @@ rr.send_blueprint(
     ),
     
 )
-# Voxel axes are RPI: X -> patient Right (viewer's Left when facing them), Y -> Posterior (into the
-# screen), Z -> Inferior (down). LFD is right-handed like RPI, so nothing gets mirrored
+# Setting visualization orientation. LFD shows head up-right
 rr.log("/mri", rr.ViewCoordinates.LFD, static=True)
 # Logging the volume on rerun: Rerun volumes should be (z-y-x), we have (x-y-z): permuting.
 rr.log(
@@ -182,7 +195,7 @@ rr.log(
 
 ### SAVING OUTPUTS ------------------------------------------------------------
 # Saving the skin mesh (vertices in patient mm, triangles, normals)
-skin_mesh_path = os.path.join(args.out_dir, "skin_mesh.npz"),
+skin_mesh_path = os.path.join(args.out_dir, "skin_mesh.npz")
 np.savez(
     skin_mesh_path,
     verts=verts,

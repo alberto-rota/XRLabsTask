@@ -4,6 +4,8 @@
 'helpers.py' collects reusable code or snippets that benefit code clarity when wrapped
 """
 
+from turtle import left
+
 import numpy as np
 import cv2
 import open3d as o3d  # Open3D for mesh operations and registrations
@@ -105,7 +107,7 @@ def fitness_gate(result, MIN_FITNESS=0.6, MAX_RMSE_mm=2.5):
 
 def find_rigid(source_cloud, target_cloud, T_init, ds=3.0):
     """Coarse-to-fine point-to-plane ICP from T_init. Returns the last ICP result."""
-    for max_dist in (4 * ds, 2 * ds, ds):
+    for max_dist in (2 * ds, ds):
         result = o3d.pipelines.registration.registration_icp(
             source_cloud,
             target_cloud,
@@ -117,3 +119,38 @@ def find_rigid(source_cloud, target_cloud, T_init, ds=3.0):
         )
         T_init = result.transformation
     return result
+
+def depth_from_pair(left, right, map1_l, map2_l, map1_r, map2_r, sgbm, MIN_DISPARITY, NUM_DISPARITIES, FB):
+    left_rect = cv2.remap(left, map1_l, map2_l, cv2.INTER_LINEAR)
+    right_rect = cv2.remap(right, map1_r, map2_r, cv2.INTER_LINEAR)
+
+    # SGBM needs grayscale images. Converting
+    gray = [
+        cv2.cvtColor(
+            cv2.resize(img, None, fx=1, fy=1, interpolation=cv2.INTER_AREA),
+            cv2.COLOR_BGR2GRAY,
+        )
+        for img in (left_rect, right_rect)
+    ]
+    # SGBM cannot match the first MIN_DISP+NUM_DISP columns. Padding
+    pad = MIN_DISPARITY + NUM_DISPARITIES
+    gray = [
+        cv2.copyMakeBorder(g, 0, 0, pad, 0, cv2.BORDER_CONSTANT, value=0)
+        for g in gray
+    ]
+
+    # Finding the disparity matches (SGBM call)
+    disp = (
+        sgbm.compute(*gray).astype(np.float32)[:, pad:] / 16.0
+    )  # SGBM returns fixed-point disparity x16
+
+    # Filtering: Some columns are ouyt of the right image width
+    cols = np.arange(disp.shape[1], dtype=np.float32)[None, :]
+    valid = (disp > MIN_DISPARITY) & (
+        cols - disp >= 0
+    )  # match must fall inside the real right image
+
+    # Disparity to depth
+    depth = np.zeros_like(disp)
+    depth[valid] = FB / disp[valid]
+    

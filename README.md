@@ -1,4 +1,4 @@
-# Alberto / XRLabs : Task
+# Alberto / XRLabs : Interview task
 
 ### Environment set up
 Get the code first 

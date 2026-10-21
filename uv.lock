@@ -2833,6 +2833,7 @@ name = "xrlabs-task"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "json5" },
     { name = "jupyter" },
     { name = "matplotlib" },
     { name = "numpy" },
@@ -2849,6 +2850,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "json5", specifier = ">=0.17.3" },
     { name = "jupyter", specifier = ">=1.1.1" },
     { name = "matplotlib", specifier = ">=3.11.2" },
     { name = "numpy", specifier = ">=2.5.4" },
