@@ -1,3 +1,6 @@
 .venv/
 data/
 out/
+.ruff_cache/
+__pycache__/
+deprecated/
