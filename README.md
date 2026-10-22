@@ -23,7 +23,7 @@ uv sync
 in the directory you just cloned. It reads the `pyproject.toml` file, solves depencencies, installs the correct python interpretcreates a virtual environment and installs. 
 
 > [!NOTE]
-> If you want to use plain `pip` or `conda` create a **Python 3.14** venv in your preferred way and just `pip install -r requirements.txt` in your environment. The requirements file mimic
+> If you want to use plain `pip` or `conda` create a **Python 3.14** venv in your preferred way and just `pip install -r requirements.txt` in your environment. The requirements file mimics the dependency session of the `pyproject.toml`
 
 THe key dependencies:
 - `pydicom` for reading the .dcm slices
@@ -48,7 +48,7 @@ data/
 ## Running the pipeline
 Make sure your virtual environment is sourced (`source .venv/bin/activate`).
 
-To run Part A:
+To run Part A only:
 ```bash
 python main.py --part_a --data_dir <DICOM_DIR_PATH>
 ```
@@ -87,9 +87,9 @@ Use the timeline at the bottom to move across frames (for part B)
 
 ---
 #### Local disk save
-Results from both pipelines can be saved on disk. It does not happen by default (for the sake of time), but it can be be toggled by passing the `--save_frames`, `--save_depthmaps`, `--save_overlays` and `--save_video_overlay` CLI args. The default output directory is `out/` and can be overridden with `--out_dir`
+Results from both pipelines are saved on disk. The default output directory is `out/` and can be overridden with `--out_dir`. The Part A files and the registration summary (`registration_metrics.json`, `registration.npz`) are always written. Saving the per-frame images (frames, depth maps, overlays) does not happen by default (for the sake of time), but it can be toggled by passing the `--save_frames`, `--save_depthmaps`, `--save_overlays` and `--save_video_overlay` CLI args.
 
-Expected output files from Part A: 
+Expected output files from Part A (always saved): 
 - `transforms.json`: `vox2pat`, `to_rpi`, `vox2pat_rpi`, the detected orientation and the original DICOM metadata
 - `volume.npy`: the raw volume
 - `skin_mesh.npz`: vertices, triangles and normals of the skin mesh

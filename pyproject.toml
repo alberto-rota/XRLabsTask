@@ -9,8 +9,6 @@ authors = [
 requires-python = ">=3.14"
 dependencies = [
     "json5>=0.17.3",
-    "jupyter>=1.1.1",
-    "matplotlib>=3.11.2",
     "numpy>=2.5.4",
     "open3d>=0.20.0",
     "opencv-python>=5.0.0.93",
@@ -18,9 +16,7 @@ dependencies = [
     "rerun-sdk>=0.39.0",
     "rich>=15.0.0",
     "scikit-image>=0.26.0",
-    "scikit-learn>=1.9.1",
     "scipy>=1.18.1",
-    "torch>=2.14.1",
 ]
 
 [tool.uv]
