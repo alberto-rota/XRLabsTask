@@ -1,52 +1,97 @@
 # Alberto / XRLabs : Interview task
 
-### Environment set up
-Get the code first 
+## Environment set up
+Get the code first
 ```bash
-git clone 
+git clone https://github.com/alberto-rota/XRLabsTask.git
 ```
-
-I use [uv](https://docs.astral.sh/uv/getting-started/installation/) to manage my environments. After installation, in the repo that you cloned:
+Code comes with a `pyproject.toml` for reproducing the python environment and dependencies.
+I use [uv](https://docs.astral.sh/uv/getting-started/installation/) to manage my environments. After installing it (`uv --version` works ), run:
 ```bash
-uv sync
+uv sync 
 ```
-It reads the `pyproject.toml` file, solves depencencies, creates a virtual environment and installs. 
-
-To run the script, activate the virual environment with
-```bash
-source .venv/bin/activate
-```
+in the directory you just cloned. It reads the `pyproject.toml` file, solves depencencies, installs the correct python interpretcreates a virtual environment and installs. 
 
 > [!NOTE]
-> If you want to use plain `pip`, just `pip install -r requirements.txt` in your environment
+> If you want to use plain `pip` or `conda` create a **Python 3.14** venv in your preferred way and just `pip install -r requirements.txt` in your environment. The requirements file mimic
 
-### Part A
-`dataload.py` deals with dataloading, parses the metdata and computes the transformmations to the RPi convention requested by the task. Run it with 
+THe key dependencies:
+- `pydicom` for reading the .dcm slices
+- `numpy`, `scipy`, `scikit-image` for the volume processing and marching cubes
+- `opencv-python` for rectification, stereo matching and video I/O
+- `open3d` for point clouds, FPFH features, RANSAC/ICP registration and raycasting the overlay
+- `rerun-sdk` for the visualization (more on this below)
+- `rich` for the colored terminal output and progress bars, `json5` for reading the commented camera params
 
-```bash
-python dataload.py --data_dir <PATH_TO_DIR_WITH_DCM>
+### Suggested data structure
+There are three main inputs to the task, and their path must be passed as a CLI arg in order for the script to pick them up. However, putting them into a `data/` folder with the following names makes the pipeline pick them up automatically. 
+
+```
+data/
+├── Aneurysm_MRI/                  # the .dcm slices
+├── surgical_navigation_task.avi   # side-by-side stereo video
+└── camera_params.jsonc            # stereo calibration
 ```
 
-##### Usage of the DICOM metadata and computation of voxel2patient transformation
-The script loads the .dcm files in the folder and checks the following:
-1. All files have the Position, Orientation, Thickness and Spacing metadata parameters that we expect 
-2. These parameters are consistent across slices
-3. All files have a valid InstanceNumber
+`camera_params.jsonc` is just the `Camera params at focus level (401 mm).txt` file that was provided, re-written by me as JSON so it can be parsed. 
 
-If that is the case, the InstanceNumber param is used as an ordering parameter to stack the slices in a 3D tensor along the last (third) dimension.
+## Running the pipeline
+Make sure your virtual environment is sourced (`source .venv/bin/activate`).
 
-The `ImageOrientationPatient` parameter is split into the X and Y direction (first 3 and last 3 values). This pair of 3D-vectors makes up the first two columns of the voxel-to-patient transformation matrix (`vox2pat` in the script). Because of the requested convention (row-col-slice), the Y direction will be the first column and the X direction will be the second.
-The third column of `vox2pat` is computed as the difference in the `ImagePositionPatient` parameter of the first and last slice in the stack. 
+To run Part A:
+```bash
+python main.py --part_a --data_dir <DICOM_DIR_PATH>
+```
+Part B requires the output of Part A. Run them in sequence as:
+```bash
+python main.py --data_dir <PATH_TO_DICOM_DIR> --video_path <PATH_TO_VIDEO> --camera_params <PATH_TO_CAMERA_JSON>
+```
 
-The translation component of `vox2pat` is assigned to the `ImagePositionpatient` of the first slice, so that the origin of the refernce frame coincides with slide 0.
+The full set of CLI args and override is available with
+```bash
+python main.py --help
+```
+Most of them are described below and in the [design write-up](DESIGN.md)
 
-##### Transforming to RPI
-`helpers.py` contains a function that identifies what direction is represented by which column axis and retrieves the three-letter anatomical convention with a lookup. If it identifies anything different to RPI, it transforms it.
+## Expected outputs
+#### 3D visualization with Rerun
+Launching any program (MRI volume, skin mesh, rectified frames, depth maps, the registration in 3D, the overlay and the error plots) are shown in [Rerun](https://rerun.io/), a 3D visualization tool that I use all the time. It comes as a python package with the project dependencies. Launching the pipeline will open a window that looks like this one from part A
 
-The transformation to RPI is based on the following logic:
-1. The RPI direction vectors for the row-col-slice conventions are known (`rpi_rf` in the file)
-2. The transformation of `vox2mat` to the RPI reference frame can be obtained as their relative pose (actually only the relative rotation), and because they are both homogeneous the transformation is simply $T_{vox2mat}^{-1}T_{RPI}$
-3. The final trasnformation from volume to RPI is the post-multiplication
+![Rerun View Part A](docs/rerun_parta.png)
 
-We check the obtained anatomical convention obtained with the same helper function as earlier and verify that its an RPI.
+and this one for Part B
+
+![Rerun View Part B](docs/rerun_partb.png)
+
+There are two tabs at the top of the viewer:
+- **Part A: MRI Preprocessing**: raw MRI volume rendering, the extracted skin mesh with the RPI axes drawn on it (R in red, P in green, I in blue), and 5 axial slices
+- **Part B: Surgical Navigation Overlay**: rectified left/right frames (with green horizontal lines to check the rectification by eye), the depth map, the error/metrics time series, the overlay on the left frame, and a 3D view where the depth map camera is placed on the MRI mesh by the registration
+
+Use the timeline at the bottom to move across frames (for part B)
+
+> [!NOTE]
+> The viewer is a separate native window that launches seamlessly if you run this on a box with a display (I assime your laptop). If you wanna run it on a headless machine, let me know and I can have it open in a browser window
+
+> [!IMPORTANT]
+> Logging a high-resolution high-fps video on rerun might overflow the cache limit, which will mean that viewer will delete the oldest video frames in order to the show the most recent. This depends also on the hardware specs of your box. A workaround is setting `--viewer_image_res_down=4` to a higher value, which will log frames, depthmaps and overlay to 1/4 the resolution.  It's 3 by default which I think wont cause you issues.
+
+---
+#### Local disk save
+Results from both pipelines can be saved on disk. It does not happen by default (for the sake of time), but it can be be toggled by passing the `--save_frames`, `--save_depthmaps`, `--save_overlays` and `--save_video_overlay` CLI args. The default output directory is `out/` and can be overridden with `--out_dir`
+
+Expected output files from Part A: 
+- `transforms.json`: `vox2pat`, `to_rpi`, `vox2pat_rpi`, the detected orientation and the original DICOM metadata
+- `volume.npy`: the raw volume
+- `skin_mesh.npz`: vertices, triangles and normals of the skin mesh
+
+Expected output files from Part B: 
+- `registration_metrics.json`: summary of the registration over the whole run (failure rate, fitness, inlier RMSE, frame-to-frame motion, timings)
+- `registration.npz`: per-frame camera-to-MRI pose and all the metrics
+- `overlays/`, `overlay_video.mp4`: the overlay on the rectified left frame (with `--save_overlays` and `--save_video_overlay`)
+- `left/`, `right/`, `depthmaps/`: rectified frames and depth maps as .npy (with `--save_frames` and `--save_depthmaps`)
+
+---
+#### Terminal output
+Some intermediate output is shown in the terminal
+
 
