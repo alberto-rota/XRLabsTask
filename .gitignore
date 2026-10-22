@@ -1,7 +1,9 @@
 .venv/
-data/
+.DS_Store
+data/Aneurysm_MRI
+data/surgical_navigation_task.avi
+data/Camera params at focus level (401 mm).txt
 out/
 .ruff_cache/
 __pycache__/
 deprecated/
-!data/camera_params.jsonc

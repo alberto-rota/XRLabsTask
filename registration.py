@@ -126,7 +126,7 @@ class Registration:
         def is_plausible(T_new):
             return self.T_refined is None or self.patch_motion(self.T_refined, T_new, patch) < max_motion_mm
 
-        # Tracking: ICP from the previous pose, accepted only if the fit is good and the motion is plausible
+        # Tracking: ICP from the previous pose is good, accepted only if the fit is good and the motion is plausible
         tracked = False
         if self.T_refined is not None:
             result = self.find_rigid(cloud, self.T_refined)

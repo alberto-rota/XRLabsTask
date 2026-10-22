@@ -1,0 +1,59 @@
+// Re-written the "Camera params at focus level (401 mm).txt" file into JSON for readability and parsing.
+{
+    "source": "data/Camera params at focus level (401 mm).txt",
+    "focus_distance_mm": 401,
+    "calibration_resolution": {
+        "width": 1920,
+        "height": 1080
+    },
+    "sbs_video_layout": {
+        "frame_width": 1920,
+        "frame_height": 1080,
+        "left_x_range": [0, 954],
+        "right_x_range": [966, 1920]
+    },
+    "left": {
+        "focal_length_px": [7821.9284, 7747.4652],
+        "focal_length_px_std": [2.3964, 2.0660],
+        "principal_point_px": [652.2570, 524.7557],
+        "principal_point_px_std": [9.0474, 3.3720],
+        "radial_distortion": [-0.0581, -0.3331],
+        "radial_distortion_std": [0.0094, 0.3643],
+        "tangential_distortion": [0.0027, -0.0201],
+        "tangential_distortion_std": [0.0001, 0.0004],
+        "K": [
+            [7821.9284, 0.0, 652.2570],
+            [0.0, 7747.4652, 524.7557],
+            [0.0, 0.0, 1.0]
+        ],
+        "dist_opencv": [-0.0581, -0.3331, 0.0027, -0.0201]
+    },
+    "right": {
+        "focal_length_px": [7818.3726, 7749.3709],
+        "focal_length_px_std": [2.3510, 2.0968],
+        "principal_point_px": [1202.0316, 539.6451],
+        "principal_point_px_std": [9.1072, 3.5729],
+        "radial_distortion": [-0.0730, 0.8924],
+        "radial_distortion_std": [0.0098, 0.4302],
+        "tangential_distortion": [0.0035, 0.0171],
+        "tangential_distortion_std": [0.0002, 0.0004],
+        "K": [
+            [7818.3726, 0.0, 1202.0316],
+            [0.0, 7749.3709, 539.6451],
+            [0.0, 0.0, 1.0]
+        ],
+        "dist_opencv": [-0.0730, 0.8924, 0.0035, 0.0171]
+    },
+    "stereo": {
+        "rotation_vector": [0.0024, -0.0273, -0.0003],
+        "rotation_vector_std": [0.0007, 0.0016, 0.0000],
+        "translation_mm": [-19.3222, 0.0184, 0.4736],
+        "translation_mm_std": [0.0067, 0.0060, 0.1004]
+    },
+    "notes": [
+        "Intrinsics are at the calibration resolution (1920x1080 per camera). Each eye in the SBS video is ~954 px wide, so x-related intrinsics (fx, cx) must be rescaled by the eye width / 1920 before use on video frames; y-related ones are unchanged.",
+        "dist_opencv uses OpenCV order [k1, k2, p1, p2].",
+        "rotation_vector is assumed to be a Rodrigues vector in radians (convert with cv2.Rodrigues).",
+        "Stereo extrinsics are assumed to follow the Bouguet/OpenCV stereoCalibrate convention X_right = R @ X_left + T; T_x < 0 is consistent with the right camera sitting ~19.3 mm to the +x side of the left one."
+    ]
+}
