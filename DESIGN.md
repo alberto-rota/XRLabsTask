@@ -1,5 +1,14 @@
 # Alberto / XRLabs : Surgical Navigation Task - Design
 
+**Contents**
+- [Codebase structure](#codebase-structure)
+- [Coordinate systems](#coordinate-systems)
+- [Transformation directions](#transformation-directions)
+- [Data Flow](#data-flow)
+- [Key assumptions](#key-assumptions)
+- [Known limitations](#known-limitations)
+- [Room For Improvement](#room-for-improvement)
+
 ## Codebase structure
 
 | File | Function |

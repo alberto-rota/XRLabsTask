@@ -1,5 +1,15 @@
 # Alberto / XRLabs : Interview task
 
+**Contents**
+- [Environment set up](#environment-set-up)
+  - [Suggested data structure](#suggested-data-structure)
+- [Running the pipeline](#running-the-pipeline)
+- [Expected outputs](#expected-outputs)
+  - [3D visualization with Rerun](#3d-visualization-with-rerun)
+  - [Local disk save](#local-disk-save)
+  - [Terminal output](#terminal-output)
+
+A design writeup is at [DESIGN.md](DESIGN.md)
 ## Environment set up
 Get the code first
 ```bash
